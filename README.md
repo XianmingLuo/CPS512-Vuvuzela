@@ -61,31 +61,42 @@ sample configs.
 
 1. Install Vuvuzela (assuming `GOPATH=~/go`, requires Go 1.4 or later):
 
-        $ go get vuvuzela.io/vuvuzela/...
+        $ git clone https://github.com/XianmingLuo/CPS512-Vuvuzela.git
+        $ cd CPS512-Vuvuzela
+        $ go mod tidy
 
   The remaining steps assume `PATH` contains `~/go/bin` and that the
   current working directory is `~/go/src/vuvuzela.io/vuvuzela`.
 
 2. Start the last Vuvuzela server:
 
-        $ vuvuzela-server -conf confs/local-last.conf
+        $ cd vuvuzela-server
+        $ go run . -conf confs/local-last.conf
 
 3. Start the middle server (in a new shell):
 
-        $ vuvuzela-server -conf confs/local-middle.conf
+        $ cd vuvuzela-server
+        $ go run . -conf confs/local-middle.conf
 
 4. Start the first server (in a new shell):
 
-        $ vuvuzela-server -conf confs/local-first.conf
+        $ cd vuvuzela-server
+        $ go run . -conf confs/local-first.conf
 
 5. Start the entry server (in a new shell):
 
-        $ vuvuzela-entry-server -wait 1s
+        $ cd vuvuzela-entry-server
+        $ go run . -wait 1s
 
 6. Run the Vuvuzela client:
 
-        $ vuvuzela-client -conf confs/alice.conf
+        $ cd vuvuzela-client
+        $ go run . -conf confs/alice.conf
 
+7. Run another Vuvuzela client:
+    
+        $ cd vuvuzela-client
+        $ go run . -conf confs/bob.conf
 The client supports these commands:
 
 * `/dial <user>` to dial another user
