@@ -13,7 +13,7 @@ import (
 	"runtime"
 	"sync"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 
 	vrand "vuvuzela.io/crypto/rand"
 	. "vuvuzela.io/vuvuzela"

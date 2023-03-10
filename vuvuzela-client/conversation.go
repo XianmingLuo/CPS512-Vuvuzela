@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/nacl/box"
 
 	"vuvuzela.io/crypto/onionbox"
@@ -97,7 +97,7 @@ func (c *Conversation) NextConvoRequest(round uint32) *ConvoRequest {
 	c.Lock()
 	c.lastRound = round
 	c.Unlock()
-	go c.gui.Flush()
+	go c.gui.redraw()
 
 	var body interface{}
 
@@ -147,7 +147,7 @@ func (c *Conversation) HandleConvoResponse(r *ConvoResponse) {
 		c.Lock()
 		c.lastPeerResponding = responding
 		c.Unlock()
-		c.gui.Flush()
+		c.gui.redraw()
 	}()
 
 	c.Lock()

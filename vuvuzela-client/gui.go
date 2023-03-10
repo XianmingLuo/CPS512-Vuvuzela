@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
-	"github.com/davidlazar/gocui"
+	log "github.com/sirupsen/logrus"
+	"github.com/jroimartin/gocui"
 
 	. "vuvuzela.io/vuvuzela"
 	. "vuvuzela.io/vuvuzela/internal"
@@ -70,7 +70,7 @@ func (gc *GuiClient) activateConvo(convo *Conversation) {
 func (gc *GuiClient) handleLine(line string) error {
 	switch {
 	case line == "/quit":
-		return gocui.Quit
+		return gocui.ErrQuit
 	case strings.HasPrefix(line, "/talk "):
 		peer := line[6:]
 		gc.switchConversation(peer)
@@ -93,48 +93,49 @@ func (gc *GuiClient) handleLine(line string) error {
 
 func (gc *GuiClient) readLine(_ *gocui.Gui, v *gocui.View) error {
 	// HACK: pressing enter on startup causes panic
-	if len(v.Buffer()) == 0 {
-		return nil
-	}
-	_, cy := v.Cursor()
-	line, err := v.Line(cy - 1)
-	if err != nil {
-		return err
-	}
+	line := strings.TrimRight(v.Buffer(), "\n")
 	if line == "" {
 		return nil
 	}
+	v.EditNewLine()
+	v.MoveCursor(0, -1, true)
 	v.Clear()
-
 	return gc.handleLine(line)
 }
 
-func (gc *GuiClient) Flush() {
-	gc.gui.Flush()
+func (gc *GuiClient) redraw() {
+	gc.gui.Update(func(gui *gocui.Gui) error {
+		return nil
+	})
 }
 
+
 func (gc *GuiClient) Warnf(format string, v ...interface{}) {
-	mv, err := gc.gui.View("main")
-	if err != nil {
-		return
-	}
-	fmt.Fprintf(mv, "-!- "+format, v...)
-	gc.gui.Flush()
+	gc.gui.Update(func(gui *gocui.Gui) error {
+		mv, err := gui.View("main")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(mv, "-!- "+format, v...)
+		return nil
+	})
 }
 
 func (gc *GuiClient) Printf(format string, v ...interface{}) {
-	mv, err := gc.gui.View("main")
-	if err != nil {
-		return
-	}
-	fmt.Fprintf(mv, format, v...)
-	gc.gui.Flush()
+	gc.gui.Update(func(gui *gocui.Gui) error {
+		mv, err := gui.View("main")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(mv, format, v...)
+		return nil
+	})
 }
 
 func (gc *GuiClient) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 	if v, err := g.SetView("main", 0, -1, maxX-1, maxY-1); err != nil {
-		if err != gocui.ErrorUnkView {
+		if err != gocui.ErrUnknownView {
 			return err
 		}
 		v.Autoscroll = true
@@ -146,7 +147,7 @@ func (gc *GuiClient) layout(g *gocui.Gui) error {
 	}
 	sv, err := g.SetView("status", -1, maxY-3, maxX, maxY-1)
 	if err != nil {
-		if err != gocui.ErrorUnkView {
+		if err != gocui.ErrUnknownView {
 			return err
 		}
 		sv.Wrap = false
@@ -174,7 +175,7 @@ func (gc *GuiClient) layout(g *gocui.Gui) error {
 
 	pv, err := g.SetView("partner", -1, maxY-2, len(partner)+1, maxY)
 	if err != nil {
-		if err != gocui.ErrorUnkView {
+		if err != gocui.ErrUnknownView {
 			return err
 		}
 		pv.Wrap = false
@@ -190,13 +191,13 @@ func (gc *GuiClient) layout(g *gocui.Gui) error {
 	fmt.Fprintf(pv, "%s>", partner)
 
 	if v, err := g.SetView("input", len(partner)+1, maxY-2, maxX, maxY); err != nil {
-		if err != gocui.ErrorUnkView {
+		if err != gocui.ErrUnknownView {
 			return err
 		}
 		v.Editable = true
 		v.Wrap = false
 		v.Frame = false
-		if err := g.SetCurrentView("input"); err != nil {
+		if _, err := g.SetCurrentView("input"); err != nil {
 			return err
 		}
 	}
@@ -205,7 +206,7 @@ func (gc *GuiClient) layout(g *gocui.Gui) error {
 }
 
 func quit(g *gocui.Gui, v *gocui.View) error {
-	return gocui.Quit
+	return gocui.ErrQuit
 }
 
 func (gc *GuiClient) Connect() error {
@@ -218,12 +219,14 @@ func (gc *GuiClient) Connect() error {
 }
 
 func (gc *GuiClient) Run() {
-	gui := gocui.NewGui()
-	if err := gui.Init(); err != nil {
+	gui, err := gocui.NewGui(gocui.OutputNormal)
+	if err != nil {
 		log.Panicln(err)
 	}
 	defer gui.Close()
 	gc.gui = gui
+
+	gui.SetManagerFunc(gc.layout)
 
 	if err := gui.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
 		log.Panicln(err)
@@ -231,14 +234,14 @@ func (gc *GuiClient) Run() {
 	if err := gui.SetKeybinding("input", gocui.KeyEnter, gocui.ModNone, gc.readLine); err != nil {
 		log.Panicln(err)
 	}
-	gui.ShowCursor = true
+	gui.Cursor = true
 	gui.BgColor = gocui.ColorDefault
 	gui.FgColor = gocui.ColorDefault
-	gui.SetLayout(gc.layout)
 
 	gc.conversations = make(map[string]*Conversation)
 	gc.switchConversation(gc.myName)
 
+	
 	gc.dialer = &Dialer{
 		gui:          gc,
 		pki:          gc.pki,
@@ -255,8 +258,8 @@ func (gc *GuiClient) Run() {
 		gc.Warnf("Connected: %s\n", gc.pki.EntryServer)
 	}()
 
-	err := gui.MainLoop()
-	if err != nil && err != gocui.Quit {
+	err = gui.MainLoop()
+	if err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
 	}
 }

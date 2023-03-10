@@ -6,7 +6,7 @@ import (
 	"flag"
 	"io/ioutil"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 
 	. "vuvuzela.io/vuvuzela"
 	. "vuvuzela.io/vuvuzela/internal"
