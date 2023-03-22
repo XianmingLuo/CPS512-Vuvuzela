@@ -13,8 +13,8 @@ import (
 )
 
 var doInit = flag.Bool("init", false, "create default config file")
-var confPath = flag.String("conf", "confs/client.conf", "config file")
-var pkiPath = flag.String("pki", "confs/pki.conf", "pki file")
+var confPath = flag.String("conf", "../confs/client.conf", "config file")
+var pkiPath = flag.String("pki", "../confs/pki.conf", "pki file")
 
 type Conf struct {
 	MyName       string

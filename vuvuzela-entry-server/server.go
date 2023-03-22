@@ -320,7 +320,8 @@ func (srv *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 var addr = flag.String("addr", ":8080", "http service address")
-var pkiPath = flag.String("pki", "confs/pki.conf", "pki file")
+// TODO: Why ../ is not needed?
+var pkiPath = flag.String("pki", "../confs/pki.conf", "pki file")
 var receiveWait = flag.Duration("wait", DefaultReceiveWait, "")
 
 func main() {

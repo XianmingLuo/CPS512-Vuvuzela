@@ -23,7 +23,8 @@ import (
 
 var doInit = flag.Bool("init", false, "create default config file")
 var confPath = flag.String("conf", "", "config file")
-var pkiPath = flag.String("pki", "confs/pki.conf", "pki file")
+// Use Absolute Path for now?
+var pkiPath = flag.String("pki", "../confs/pki.conf", "pki file")
 var muOverride = flag.Float64("mu", -1.0, "override ConvoMu in conf file")
 
 type Conf struct {
@@ -153,6 +154,12 @@ func main() {
 	if conf.ListenAddr == "" {
 		conf.ListenAddr = DefaultServerAddr
 	}
+	// Listen to incoming connection from previous server
+	// Before
+	// FirstServer:2718 ---> MiddleServer:2719 --> LastServer:2720
+	// Now
+	// FirstServer:2718 ---> MiddleServer:3719 --> MiddleServer2:3720 --> LastServer:2720
+	
 	listen, err := net.Listen("tcp", conf.ListenAddr)
 	if err != nil {
 		log.Fatal("Listen:", err)
