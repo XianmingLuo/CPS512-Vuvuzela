@@ -63,6 +63,7 @@ func WriteDefaultConf(path string) {
 }
 
 func main() {
+	// command-line parsing
 	flag.Parse()
 	log.SetFormatter(&ServerFormatter{})
 
@@ -90,11 +91,22 @@ func main() {
 	var err error
 	var client *vrpc.Client
 	if addr := pki.NextServer(conf.ServerName); addr != "" {
+		// Extend connection
 		client, err = vrpc.Dial("tcp", addr, runtime.NumCPU())
 		if err != nil {
 			log.Fatalf("vrpc.Dial: %s", err)
 		}
 	}
+	// skip client for backup use
+	// TODO: Should one server know the address of skip client?	
+	var skipClient *vrpc.Client
+	if addr := pki.SkipServer(conf.ServerName); addr != "" {
+		skipClient, err = vrpc.Dial("tcp", addr, runtime.NumCPU())
+		if err != nil {
+			log.Fatalf("vrpc.Dial: %s", err)
+		}
+	}
+	
 
 	var idle sync.Mutex
 
@@ -111,6 +123,9 @@ func main() {
 		PrivateKey: conf.PrivateKey,
 
 		Client:     client,
+		// SkipClient is for backup use
+		// Or discover when needed?
+		SkipClient: skipClient,
 		LastServer: client == nil,
 	}
 	InitConvoService(convoService)
@@ -158,8 +173,24 @@ func main() {
 	// Before
 	// FirstServer:2718 ---> MiddleServer:2719 --> LastServer:2720
 	// Now
-	// FirstServer:2718 ---> MiddleServer:3719 --> MiddleServer2:3720 --> LastServer:2720
-	
+	// FirstServer:2718 ---> MiddleServer1:3719 --> MiddleServer2:3720 --> LastServer:2720
+	// 1. When middleserver2 is down, middleserver directly forward message to last server
+	// May have some issue
+	// Last server can not break the onion layer that is supposed to be decrypted by middleserver2
+	// Does client has retry machanism?
+	// One possible solution
+	// middleserver1 / middleserver2.1
+	//               \ middleserver2.2
+	// middleserver2 group shares the same key pair
+	// security implication: larger attack surface
+	// Another possible solution
+	// middleserver1 --X--> middleserver2 --X--> last server
+	//               |--------------------------->|
+	// skip the middleserver2
+	// Problem: last server does not have private key of middleserver2, can not decrypt middleserver2 layer
+	// Possible Solution: client retry with one onion layer less
+	// Security implication: differential privacy may be broken?
+	// Try skip middleserver2 for now
 	listen, err := net.Listen("tcp", conf.ListenAddr)
 	if err != nil {
 		log.Fatal("Listen:", err)

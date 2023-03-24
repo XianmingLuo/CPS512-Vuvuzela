@@ -351,7 +351,7 @@ func main() {
 	}
 
 	go srv.convoRoundLoop()
-	go srv.dialRoundLoop()
+	//go srv.dialRoundLoop()
 
 	http.HandleFunc("/ws", srv.wsHandler)
 

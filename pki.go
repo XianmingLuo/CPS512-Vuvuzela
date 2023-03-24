@@ -85,6 +85,16 @@ func (pki *PKI) NextServer(serverName string) string {
 	}
 }
 
+func (pki *PKI) SkipServer(serverName string) string {
+	i := pki.Index(serverName)
+	if i < len(pki.ServerOrder)-2 {
+		s:= pki.ServerOrder[i+2]
+		return pki.Servers[s].Address		
+	} else {
+		return ""
+	}
+}
+
 func (pki *PKI) NextServerKeys(serverName string) BoxKeys {
 	i := pki.Index(serverName)
 	var keys []*BoxKey

@@ -26,6 +26,7 @@ type ConvoService struct {
 	ServerName string
 	PrivateKey *BoxKey
 	Client     *vrpc.Client
+	SkipClient *vrpc.Client
 	LastServer bool
 
 	AccessCounts chan *AccessCount
@@ -99,7 +100,6 @@ func (srv *ConvoService) NewRound(Round uint32, _ *struct{}) error {
 		srv: srv,
 	}
 	srv.rounds[Round] = round
-
 	if !srv.LastServer {
 		round.numFakeSingles = srv.Laplace.Uint32()
 		round.numFakeDoubles = srv.Laplace.Uint32()
@@ -230,14 +230,21 @@ func (srv *ConvoService) Close(Round uint32, _ *struct{}) error {
 		shuffler := shuffle.New(rand.Reader, len(outgoing))
 		shuffler.Shuffle(outgoing)
 
+		// Critical Part for Fault Tolerance
+		// if next server is dead
+		// err will be returned
 		if err := NewConvoRound(srv.Client, Round); err != nil {
-			return fmt.Errorf("NewConvoRound: %s", err)
+			// TODO: Catch specific type of error
+			log.Println("NewConvoround: %s", err)
+			//return fmt.Errorf("NewConvoRound: %s", err)
 		}
 		srv.Idle.Unlock()
 
+		// TODO: What is replies?
 		replies, err := RunConvoRound(srv.Client, Round, outgoing)
 		if err != nil {
-			return fmt.Errorf("RunConvoRound: %s", err)
+			log.Println("NewConvoround: %s", err)
+			//return fmt.Errorf("RunConvoRound: %s", err)
 		}
 
 		shuffler.Unshuffle(replies)
@@ -312,6 +319,7 @@ type ConvoGetResult struct {
 	Onions [][]byte
 }
 
+// RPC: Get
 func (srv *ConvoService) Get(args *ConvoGetArgs, result *ConvoGetResult) error {
 	log.WithFields(log.Fields{"service": "convo", "rpc": "Get", "round": args.Round, "count": args.Count}).Debug()
 
@@ -351,15 +359,17 @@ func (srv *ConvoService) Delete(Round uint32, _ *struct{}) error {
 	return nil
 }
 
+// RPC: ConvoService.NewRound
 func NewConvoRound(client *vrpc.Client, round uint32) error {
 	return client.Call("ConvoService.NewRound", round, nil)
 }
-
+// Ask the next server to run convo round
 func RunConvoRound(client *vrpc.Client, round uint32, onions [][]byte) ([][]byte, error) {
 	openArgs := &ConvoOpenArgs{
 		Round:       round,
 		NumIncoming: len(onions),
 	}
+	// First Call RPC Open
 	if err := client.Call("ConvoService.Open", openArgs, nil); err != nil {
 		return nil, fmt.Errorf("Open: %s", err)
 	}
@@ -367,6 +377,7 @@ func RunConvoRound(client *vrpc.Client, round uint32, onions [][]byte) ([][]byte
 	spans := concurrency.Spans(len(onions), 4000)
 	calls := make([]*vrpc.Call, len(spans))
 
+	// Then Call RPC Add
 	concurrency.ParallelFor(len(calls), func(p *concurrency.P) {
 		for i, ok := p.Next(); ok; i, ok = p.Next() {
 			span := spans[i]
@@ -382,14 +393,17 @@ func RunConvoRound(client *vrpc.Client, round uint32, onions [][]byte) ([][]byte
 		}
 	})
 
+	// TODO: What is calls?
 	if err := client.CallMany(calls); err != nil {
 		return nil, fmt.Errorf("Add: %s", err)
 	}
 
+	// Call RPC Close
 	if err := client.Call("ConvoService.Close", round, nil); err != nil {
 		return nil, fmt.Errorf("Close: %s", err)
 	}
 
+	// Call RPC Get
 	concurrency.ParallelFor(len(calls), func(p *concurrency.P) {
 		for i, ok := p.Next(); ok; i, ok = p.Next() {
 			span := spans[i]
