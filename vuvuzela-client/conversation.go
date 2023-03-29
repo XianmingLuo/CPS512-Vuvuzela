@@ -127,7 +127,7 @@ func (c *Conversation) NextConvoRequest(round uint32) *ConvoRequest {
 	}
 
 	// TODO: Use onion to transimit?
-	onion, sharedKeys := onionbox.Seal(exchange.Marshal(), ForwardNonce(round), c.pki.ServerKeys().Keys())
+	onion, sharedKeys := onionbox.Seal(exchange.Marshal(), ForwardNonce(round), c.pki.ServerKeys(c.pki.ServerOrder).Keys())
 
 	pr := &pendingRound{
 		onionSharedKeys: sharedKeys,

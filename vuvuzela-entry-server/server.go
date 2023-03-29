@@ -18,6 +18,8 @@ import (
 )
 
 type server struct {
+	currentRoute []string
+	
 	connectionsMu sync.Mutex
 	connections   map[*connection]bool
 
@@ -172,7 +174,7 @@ func (c *connection) handleDialRequest(r *DialRequest) {
 func (srv *server) convoRoundLoop() {
 	for {
 		// TODO: Block here when server chain is broken
-		if err := NewConvoRound(srv.firstServer, srv.convoRound, []string{"1", "2"}); err != nil {
+		if err := NewConvoRound(srv.firstServer, srv.convoRound, srv.currentRoute); err != nil {
 			log.WithFields(log.Fields{"service": "convo", "round": srv.convoRound, "call": "NewConvoRound"}).Error(err)
 			time.Sleep(10 * time.Second)
 			continue
@@ -336,17 +338,18 @@ func main() {
 
 	pki := ReadPKI(*pkiPath)
 
-	firstServer, err := vrpc.Dial("tcp", pki.FirstServer(), runtime.NumCPU())
+	firstServer, err := vrpc.Dial("tcp", pki.FirstServer(pki.ServerOrder), runtime.NumCPU())
 	if err != nil {
 		log.Fatalf("vrpc.Dial: %s", err)
 	}
 
-	lastServer, err := vrpc.Dial("tcp", pki.LastServer(), 1)
+	lastServer, err := vrpc.Dial("tcp", pki.LastServer(pki.ServerOrder), 1)
 	if err != nil {
 		log.Fatalf("vrpc.Dial: %s", err)
 	}
 
 	srv := &server{
+		currentRoute:  pki.ServerOrder,
 		firstServer:   firstServer,
 		lastServer:    lastServer,
 		connections:   make(map[*connection]bool),

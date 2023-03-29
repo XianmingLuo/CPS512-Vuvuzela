@@ -90,7 +90,7 @@ func main() {
 
 	var err error
 	var client *vrpc.Client
-	if addr := pki.NextServer(conf.ServerName); addr != "" {
+	if addr := pki.NextServer(conf.ServerName, pki.ServerOrder); addr != "" {
 		// Extend connection
 		client, err = vrpc.Dial("tcp", addr, runtime.NumCPU())
 		if err != nil {
@@ -100,7 +100,7 @@ func main() {
 	// skip client for backup use
 	// TODO: Should one server know the address of skip client?	
 	var skipClient *vrpc.Client
-	if addr := pki.SkipServer(conf.ServerName); addr != "" {
+	if addr := pki.SkipServer(conf.ServerName, pki.ServerOrder); addr != "" {
 		skipClient, err = vrpc.Dial("tcp", addr, runtime.NumCPU())
 		if err != nil {
 			log.Fatalf("vrpc.Dial: %s", err)

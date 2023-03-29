@@ -3,7 +3,6 @@ package vuvuzela
 import (
 	"net"
 	"strings"
-	"fmt"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/nacl/box"
@@ -47,36 +46,29 @@ func ReadPKI(jsonPath string) *PKI {
 	return pki
 }
 
-func (pki *PKI) ServerKeys() BoxKeys {
+func (pki *PKI) ServerKeys(route []string) BoxKeys {
+	//TODO: 3?
 	keys := make([]*BoxKey, 0, 3)
-	for _, s := range pki.ServerOrder {
+	for _, s := range route {
+		// TODO: May still need dynamic membership to update pki.Servers
 		info := pki.Servers[s]
 		keys = append(keys, info.PublicKey)
 	}
 	return keys
 }
-func (pki *PKI) RemoveServer(serverName string) error {
-	for i, s := range pki.ServerOrder {
-		if s == serverName {
-			pki.ServerOrder = append(pki.ServerOrder[:i], pki.ServerOrder[i+1:]...)
-			return nil
-		}
-	}
-	return fmt.Errorf("server %s not found", serverName)
-}
 
-func (pki *PKI) FirstServer() string {
-	s := pki.ServerOrder[0]
+func (pki *PKI) FirstServer(route []string) string {
+	s := route[0]
 	return pki.Servers[s].Address
 }
 
-func (pki *PKI) LastServer() string {
-	s := pki.ServerOrder[len(pki.ServerOrder)-1]
+func (pki *PKI) LastServer(route []string) string {
+	s := route[len(route)-1]
 	return pki.Servers[s].Address
 }
 
-func (pki *PKI) Index(serverName string) int {
-	for i, s := range pki.ServerOrder {
+func (pki *PKI) Index(serverName string, route []string) int {
+	for i, s := range route {
 		if s == serverName {
 			return i
 		}
@@ -85,41 +77,42 @@ func (pki *PKI) Index(serverName string) int {
 	return -1
 }
 
-func (pki *PKI) NextServer(serverName string) string {
-	i := pki.Index(serverName)
-	if i < len(pki.ServerOrder)-1 {
-		s := pki.ServerOrder[i+1]
+func (pki *PKI) NextServer(serverName string, route []string) string {
+	// What if the server is not in the route?
+	i := pki.Index(serverName, route)
+	if i < len(route)-1 {
+		s := route[i+1]
 		return pki.Servers[s].Address
 	} else {
 		return ""
 	}
 }
 
-func (pki *PKI) SkipServer(serverName string) string {
-	i := pki.Index(serverName)
-	if i < len(pki.ServerOrder)-2 {
-		s:= pki.ServerOrder[i+2]
+func (pki *PKI) SkipServer(serverName string, route []string) string {
+	i := pki.Index(serverName, route)
+	if i < len(route)-2 {
+		s:= route[i+2]
 		return pki.Servers[s].Address		
 	} else {
 		return ""
 	}
 }
 
-func (pki *PKI) NextServerKeys(serverName string) BoxKeys {
-	i := pki.Index(serverName)
+func (pki *PKI) NextServerKeys(serverName string, route []string) BoxKeys {
+	i := pki.Index(serverName, route)
 	var keys []*BoxKey
-	for _, s := range pki.ServerOrder[i+1:] {
+	for _, s := range route[i+1:] {
 		keys = append(keys, pki.Servers[s].PublicKey)
 	}
 	return keys
 }
 
-func (pki *PKI) IncomingOnionOverhead(serverName string) int {
-	i := len(pki.ServerOrder) - pki.Index(serverName)
+func (pki *PKI) IncomingOnionOverhead(serverName string, route []string) int {
+	i := len(route) - pki.Index(serverName, route)
 	return i * onionbox.Overhead
 }
 
-func (pki *PKI) OutgoingOnionOverhead(serverName string) int {
-	i := len(pki.ServerOrder) - pki.Index(serverName)
+func (pki *PKI) OutgoingOnionOverhead(serverName string, route []string) int {
+	i := len(route) - pki.Index(serverName, route)
 	return i * box.Overhead
 }

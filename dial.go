@@ -33,6 +33,7 @@ type DialRound struct {
 	sync.Mutex
 
 	status   dialStatus
+	route []string
 	incoming [][]byte
 
 	noise   [][]byte
@@ -91,7 +92,9 @@ func (srv *DialService) NewRound(Round uint32, _ *struct{}) error {
 		round.noise = make([][]byte, noiseTotal)
 
 		nonce := ForwardNonce(Round)
-		nextKeys := srv.PKI.NextServerKeys(srv.ServerName).Keys()
+		nextKeys := srv.PKI.NextServerKeys(
+			srv.ServerName,
+			round.route).Keys()
 
 		FillWithFakeIntroductions(round.noise, noiseCounts, nonce, nextKeys)
 		round.noiseWg.Done()
@@ -116,7 +119,9 @@ func (srv *DialService) Add(args *DialAddArgs, _ *struct{}) error {
 
 	nonce := ForwardNonce(args.Round)
 	messages := make([][]byte, 0, len(args.Onions))
-	expectedOnionSize := srv.PKI.IncomingOnionOverhead(srv.ServerName) + SizeDialExchange
+	expectedOnionSize := srv.PKI.IncomingOnionOverhead(
+		srv.ServerName,
+		round.route) + SizeDialExchange
 
 	for _, onion := range args.Onions {
 		if len(onion) == expectedOnionSize {
