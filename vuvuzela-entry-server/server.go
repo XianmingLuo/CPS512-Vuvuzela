@@ -167,21 +167,23 @@ func (c *connection) handleDialRequest(r *DialRequest) {
 	srv.dialRequests = append(srv.dialRequests, rr)
 	srv.dialMu.Unlock()
 }
-
+// Only Middle Server will add Cover Traffic
+// Entry server won't
 func (srv *server) convoRoundLoop() {
 	for {
-		if err := NewConvoRound(srv.firstServer, srv.convoRound); err != nil {
+		// TODO: Block here when server chain is broken
+		if err := NewConvoRound(srv.firstServer, srv.convoRound, []string{"1", "2"}); err != nil {
 			log.WithFields(log.Fields{"service": "convo", "round": srv.convoRound, "call": "NewConvoRound"}).Error(err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
 		log.WithFields(log.Fields{"service": "convo", "round": srv.convoRound}).Info("Broadcast")
-
 		broadcast(srv.allConnections(), &AnnounceConvoRound{srv.convoRound})
 		time.Sleep(*receiveWait)
 
 		srv.convoMu.Lock()
-		go srv.runConvoRound(srv.convoRound, srv.convoRequests)
+		//go srv.runConvoRound(srv.convoRound, srv.convoRequests)
+		srv.runConvoRound(srv.convoRound, srv.convoRequests)
 
 		srv.convoRound += 1
 		srv.convoRequests = make([]*convoReq, 0, len(srv.convoRequests))
@@ -214,6 +216,7 @@ func (srv *server) dialRoundLoop() {
 func (srv *server) runConvoRound(round uint32, requests []*convoReq) {
 	conns := make([]*connection, len(requests))
 	onions := make([][]byte, len(requests))
+	// TODO: Or entry server is responsible for generating fake requests
 	for i, r := range requests {
 		conns[i] = r.conn
 		onions[i] = r.onion
@@ -224,6 +227,8 @@ func (srv *server) runConvoRound(round uint32, requests []*convoReq) {
 
 	replies, err := RunConvoRound(srv.firstServer, round, onions)
 	if err != nil {
+		// TODO: Deal with possible middle server failure here
+		// inform client of the server chain update
 		rlog.WithFields(log.Fields{"call": "RunConvoRound"}).Error(err)
 		broadcast(conns, &ConvoError{Round: round, Err: "server error"})
 		return
@@ -231,6 +236,7 @@ func (srv *server) runConvoRound(round uint32, requests []*convoReq) {
 
 	rlog.WithFields(log.Fields{"replies": len(replies)}).Info("Success")
 
+	// Send back reply when a round runs successfully
 	concurrency.ParallelFor(len(replies), func(p *concurrency.P) {
 		for i, ok := p.Next(); ok; i, ok = p.Next() {
 			reply := &ConvoResponse{

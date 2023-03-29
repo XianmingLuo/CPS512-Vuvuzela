@@ -122,6 +122,7 @@ func (c *Client) readLoop() {
 
 func (c *Client) handleResponse(v interface{}) {
 	switch v := v.(type) {
+	// TODO: Use existing error or new error to indicate need of resending
 	case *BadRequestError:
 		log.Printf("bad request error: %s", v.Error())
 	case *AnnounceConvoRound:
@@ -132,6 +133,10 @@ func (c *Client) handleResponse(v interface{}) {
 		c.deliverConvoResponse(v)
 	case *DialBucket:
 		c.dialHandler.HandleDialBucket(v)
+	// TODO: Error Message can be more detailed
+	case *ConvoError:
+		log.Printf("server chain broken: %s", v.Error())
+		
 	}
 }
 

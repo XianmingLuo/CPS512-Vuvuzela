@@ -84,6 +84,7 @@ func (gc *GuiClient) handleLine(line string) error {
 		gc.Warnf("Dialing user: %s\n", peer)
 		gc.dialer.QueueRequest(pk)
 	default:
+		// Message
 		msg := strings.TrimSpace(line)
 		gc.selectedConvo.QueueTextMessage([]byte(msg))
 		gc.Printf("<%s> %s\n", gc.myName, msg)

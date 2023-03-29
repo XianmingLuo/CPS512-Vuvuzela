@@ -3,6 +3,7 @@ package vuvuzela
 import (
 	"net"
 	"strings"
+	"fmt"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/nacl/box"
@@ -53,6 +54,15 @@ func (pki *PKI) ServerKeys() BoxKeys {
 		keys = append(keys, info.PublicKey)
 	}
 	return keys
+}
+func (pki *PKI) RemoveServer(serverName string) error {
+	for i, s := range pki.ServerOrder {
+		if s == serverName {
+			pki.ServerOrder = append(pki.ServerOrder[:i], pki.ServerOrder[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("server %s not found", serverName)
 }
 
 func (pki *PKI) FirstServer() string {

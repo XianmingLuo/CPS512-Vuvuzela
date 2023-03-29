@@ -39,3 +39,13 @@ func TestNextKeys(t *testing.T) {
 		t.Fatalf("wrong key")
 	}
 }
+func TestRemoveServer(t *testing.T) {
+	err := testPKI.RemoveServer("openstack3")
+	if err == nil {
+		t.Fatalf("remove a server that doesn't exist")
+	}
+	err = testPKI.RemoveServer("openstack1")
+	if err != nil {
+		t.Fatalf("fail to remove a server that exist")
+	}
+}

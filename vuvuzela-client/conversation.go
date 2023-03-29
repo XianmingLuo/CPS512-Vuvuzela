@@ -102,6 +102,7 @@ func (c *Conversation) NextConvoRequest(round uint32) *ConvoRequest {
 	var body interface{}
 
 	select {
+	// m is plaintext
 	case m := <-c.outQueue:
 		body = &TextMessage{Message: m}
 	default:
@@ -118,11 +119,14 @@ func (c *Conversation) NextConvoRequest(round uint32) *ConvoRequest {
 	ctxt := c.Seal(msgdata[:], round, c.myRole())
 	copy(encmsg[:], ctxt)
 
+	// Conversation Package to put in the last server
+	// deadDrop is pre-computed
 	exchange := &ConvoExchange{
 		DeadDrop:         c.deadDrop(round),
 		EncryptedMessage: encmsg,
 	}
 
+	// TODO: Use onion to transimit?
 	onion, sharedKeys := onionbox.Seal(exchange.Marshal(), ForwardNonce(round), c.pki.ServerKeys().Keys())
 
 	pr := &pendingRound{
@@ -251,6 +255,7 @@ func (c *Conversation) Open(ctxt []byte, round uint32, role byte) ([]byte, bool)
 	return box.Open(nil, ctxt, &nonce, c.peerPublicKey.Key(), c.myPrivateKey.Key())
 }
 
+// Derive deadDrop id based on key and round number
 func (c *Conversation) deadDrop(round uint32) (id DeadDrop) {
 	if c.Solo() {
 		rand.Read(id[:])
