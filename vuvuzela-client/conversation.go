@@ -21,6 +21,8 @@ import (
 type Conversation struct {
 	sync.RWMutex
 
+	route         []string
+
 	pki           *PKI
 	peerName      string
 	peerPublicKey *BoxKey
@@ -106,6 +108,7 @@ func (c *Conversation) NextConvoRequest(round uint32) *ConvoRequest {
 	case m := <-c.outQueue:
 		body = &TextMessage{Message: m}
 	default:
+		// Is timestampmessage distinguishable?
 		body = &TimestampMessage{
 			Timestamp: time.Now(),
 		}
@@ -127,13 +130,14 @@ func (c *Conversation) NextConvoRequest(round uint32) *ConvoRequest {
 	}
 
 	// TODO: Use onion to transimit?
-	onion, sharedKeys := onionbox.Seal(exchange.Marshal(), ForwardNonce(round), c.pki.ServerKeys(c.pki.ServerOrder).Keys())
+	onion, sharedKeys := onionbox.Seal(exchange.Marshal(), ForwardNonce(round), c.pki.ServerKeys(c.route).Keys())
 
 	pr := &pendingRound{
 		onionSharedKeys: sharedKeys,
 		sentMessage:     encmsg,
 	}
 	c.Lock()
+	// What is pendingRounds used for?
 	c.pendingRounds[round] = pr
 	c.Unlock()
 
@@ -197,6 +201,25 @@ func (c *Conversation) HandleConvoResponse(r *ConvoResponse) {
 		c.lastLatency = latency
 		c.Unlock()
 	}
+}
+// Assume Convo Error only represents server chain broken so far
+// Let client decided router or entry server?
+// Entry Server for now
+func (c *Conversation) HandleConvoError(e *ConvoError) {
+	c.gui.Printf("Middle Server Fault: Please rephrase and enter\n")
+	c.gui.Printf("server chain broken: %s\n", e.Err)
+	c.gui.Printf("Removing %s\n", e.Err)
+	failedServerName := e.Err
+	for i, s := range c.route {
+		if s == failedServerName {
+			c.route = append(
+				c.route[:i],
+				c.route[i+1:]...
+			)
+		}
+	}
+	c.gui.Printf("Updating route to %s\n", c.route)
+	return
 }
 
 type Status struct {

@@ -266,7 +266,8 @@ func (srv *ConvoService) Close(Round uint32, _ *struct{}) error {
 		// err will be returned
 		if err := NewConvoRound(srv.Client, Round, srv.rounds[Round].route); err != nil {
 			// TODO: Catch specific type of error
-			nextServer := srv.PKI.NextServer(
+			nextServerName := 
+				srv.PKI.NextServerName(
 				srv.ServerName,
 				round.route)
 			log.Println("NewConvoRound: ", err)
@@ -274,13 +275,14 @@ func (srv *ConvoService) Close(Round uint32, _ *struct{}) error {
 			if srv.SkipClient != nil {
 				// Update server order
 				// TODO: Potential Race Condition
-				log.Println("Remove  ", nextServer)
+				log.Println("Remove  ", nextServerName)
 				// SkipClient becomes new client
 				srv.Client = srv.SkipClient
 				srv.SkipClient = nil				
 				// return connection error
 				srv.Idle.Unlock()
-				return fmt.Errorf("NewConvoRound: %s", err)
+				// TODO: Better to Customize error type
+				return fmt.Errorf("NewConvoRound: %s", nextServerName)
 			} else {
 				// The entire system is down
 				// Differentiate from error with backup

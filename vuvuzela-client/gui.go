@@ -41,6 +41,7 @@ func (gc *GuiClient) switchConversation(peer string) {
 			return
 		}
 		convo = &Conversation{
+			route:         gc.pki.ServerOrder,
 			pki:           gc.pki,
 			peerName:      peer,
 			peerPublicKey: peerPublicKey,

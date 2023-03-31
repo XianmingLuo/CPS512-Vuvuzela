@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/gorilla/websocket"
@@ -173,9 +174,8 @@ func (c *connection) handleDialRequest(r *DialRequest) {
 // Entry server won't
 func (srv *server) convoRoundLoop() {
 	for {
-		// TODO: Block here when server chain is broken
 		if err := NewConvoRound(srv.firstServer, srv.convoRound, srv.currentRoute); err != nil {
-			log.WithFields(log.Fields{"service": "convo", "round": srv.convoRound, "call": "NewConvoRound"}).Error(err)
+			log.WithFields(log.Fields{"service": "convo", "round": srv.convoRound, "call": "NewConvoRound", "currentRoute": srv.currentRoute}).Error(err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
@@ -185,6 +185,7 @@ func (srv *server) convoRoundLoop() {
 
 		srv.convoMu.Lock()
 		//go srv.runConvoRound(srv.convoRound, srv.convoRequests)
+		// Middle Server failure will happen here
 		srv.runConvoRound(srv.convoRound, srv.convoRequests)
 
 		srv.convoRound += 1
@@ -218,7 +219,6 @@ func (srv *server) dialRoundLoop() {
 func (srv *server) runConvoRound(round uint32, requests []*convoReq) {
 	conns := make([]*connection, len(requests))
 	onions := make([][]byte, len(requests))
-	// TODO: Or entry server is responsible for generating fake requests
 	for i, r := range requests {
 		conns[i] = r.conn
 		onions[i] = r.onion
@@ -228,11 +228,26 @@ func (srv *server) runConvoRound(round uint32, requests []*convoReq) {
 	rlog.WithFields(log.Fields{"call": "RunConvoRound", "onions": len(onions)}).Info()
 
 	replies, err := RunConvoRound(srv.firstServer, round, onions)
+	// If here fails, currentRoute needs to be updated
 	if err != nil {
 		// TODO: Deal with possible middle server failure here
 		// inform client of the server chain update
 		rlog.WithFields(log.Fields{"call": "RunConvoRound"}).Error(err)
-		broadcast(conns, &ConvoError{Round: round, Err: "server error"})
+		// Update current Route
+		// E.g. "Close: NewConvoround: local-middle0" --> "local-middle0"
+		errorStrings := strings.Split(err.Error(), ":")
+		failedServerName := strings.Trim(
+			errorStrings[len(errorStrings)-1],
+			" ")
+		broadcast(conns, &ConvoError{Round: round, Err: failedServerName})
+		// TODO: May need lock
+		for i, s := range srv.currentRoute {
+			if s == failedServerName {
+				srv.currentRoute = append(
+					srv.currentRoute[:i],
+					srv.currentRoute[i+1:]...)
+			}			
+		}
 		return
 	}
 

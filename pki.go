@@ -77,15 +77,26 @@ func (pki *PKI) Index(serverName string, route []string) int {
 	return -1
 }
 
-func (pki *PKI) NextServer(serverName string, route []string) string {
+func (pki *PKI) NextServerName(serverName string, route []string) string {
 	// What if the server is not in the route?
 	i := pki.Index(serverName, route)
 	if i < len(route)-1 {
 		s := route[i+1]
-		return pki.Servers[s].Address
+		return s
 	} else {
 		return ""
 	}
+}
+
+func (pki *PKI) NextServer(serverName string, route []string) string {
+	// What if the server is not in the route?
+	serverName = pki.NextServerName(serverName, route)
+	if serverName != "" {
+		return pki.Servers[serverName].Address		
+	} else {
+		return ""
+	}
+
 }
 
 func (pki *PKI) SkipServer(serverName string, route []string) string {
