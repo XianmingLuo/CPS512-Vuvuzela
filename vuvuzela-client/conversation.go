@@ -21,6 +21,7 @@ import (
 type Conversation struct {
 	sync.RWMutex
 
+	// Represents a valid route
 	route         []string
 
 	pki           *PKI

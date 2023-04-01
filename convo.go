@@ -83,6 +83,7 @@ func (srv *ConvoService) getRound(round uint32, expectedStatus convoStatus) (*Co
 	return r, nil
 }
 
+// NewRound RPC
 func (srv *ConvoService) NewRound(args *ConvoNewRoundArgs, _ *struct{}) error {
 	log.WithFields(log.Fields{"service": "convo", "rpc": "NewRound", "round": args.Round, "route": args.Route}).Info()
 

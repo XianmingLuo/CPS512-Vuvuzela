@@ -243,6 +243,7 @@ func (srv *server) runConvoRound(round uint32, requests []*convoReq) {
 		// TODO: May need lock
 		for i, s := range srv.currentRoute {
 			if s == failedServerName {
+				// remove failedservername from currentRoute
 				srv.currentRoute = append(
 					srv.currentRoute[:i],
 					srv.currentRoute[i+1:]...)
