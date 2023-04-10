@@ -26,6 +26,7 @@ type ConvoService struct {
 	ServerName string
 	PrivateKey *BoxKey
 	Client     *vrpc.Client
+  NextClients map[string]*vrpc.Client
 	SkipClient *vrpc.Client
 	LastServer bool
 
@@ -209,7 +210,7 @@ func (srv *ConvoService) Add(args *ConvoAddArgs, _ *struct{}) error {
 			}
 		} else {
 			// for debugging
-			log.WithFields(log.Fields{"round": args.Round, "offset": args.Offset, "onions": len(args.Onions), "onion": k, "onionLen": len(onion)}).Error("bad onion size")
+      log.WithFields(log.Fields{"round": args.Round, "offset": args.Offset,"expected size": expectedOnionSize,  "onions": len(args.Onions), "onion": k, "onionLen": len(onion)}).Error("bad onion size")
 		}
 	}
 
@@ -265,6 +266,13 @@ func (srv *ConvoService) Close(Round uint32, _ *struct{}) error {
 		// Critical Part for Fault Tolerance
 		// if next server is dead
 		// err will be returned
+    nextServer := srv.PKI.NextServer(srv.ServerName, srv.rounds[Round].route)
+    client :=  srv.NextClients[nextServer] 
+    if client != nil {
+      srv.Client = client
+    } else {
+      srv.Client = srv.SkipClient
+    }
 		if err := NewConvoRound(srv.Client, Round, srv.rounds[Round].route); err != nil {
 			// TODO: Catch specific type of error
 			nextServerName := 
@@ -279,9 +287,10 @@ func (srv *ConvoService) Close(Round uint32, _ *struct{}) error {
 				log.Println("Remove  ", nextServerName)
 				// SkipClient becomes new client
 				srv.Client = srv.SkipClient
-				srv.SkipClient = nil				
+				//srv.SkipClient = nil				
 				// return connection error
 				srv.Idle.Unlock()
+				log.Println("unlock ", nextServerName)
 				// TODO: Better to Customize error type
 				return fmt.Errorf("NewConvoRound: %s", nextServerName)
 			} else {
@@ -303,12 +312,12 @@ func (srv *ConvoService) Close(Round uint32, _ *struct{}) error {
 		log.Println(4)
 		replies, err := RunConvoRound(srv.Client, Round, outgoing)
 		if err != nil {
-			log.Println("RunConvoRound: %s", err)
+			//log.Println("RunConvoRound: %s", err)
 			// TODO: Abstract out to avoid duplicate		
 			if srv.SkipClient != nil {
 				// SkipClient becomes new client
 				srv.Client = srv.SkipClient
-				srv.SkipClient = nil
+				//srv.SkipClient = nil
 				return fmt.Errorf("RunConvoRound: %s", err)
 			} else {
 				// The entire system is down

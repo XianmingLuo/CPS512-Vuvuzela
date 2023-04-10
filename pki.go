@@ -14,11 +14,13 @@ import (
 type ServerInfo struct {
 	Address   string
 	PublicKey *BoxKey
+  Level     int `json:",string"`
 }
 
 type PKI struct {
 	People      map[string]*BoxKey
 	Servers     map[string]*ServerInfo
+  ServerLevels map[int][]string
 	ServerOrder []string
 	EntryServer string
 }
@@ -73,7 +75,7 @@ func (pki *PKI) Index(serverName string, route []string) int {
 			return i
 		}
 	}
-	log.Fatalf("pki.Index: server %q not found", serverName)
+	//log.Debugf("pki.Index: server %q not found", serverName)
 	return -1
 }
 
@@ -99,8 +101,26 @@ func (pki *PKI) NextServer(serverName string, route []string) string {
 
 }
 
+func (pki *PKI) NextServers(serverName string) []string {
+  level := pki.Servers[serverName].Level
+  if level < len(pki.ServerLevels) -1 {
+    var addrs []string
+    servers := pki.ServerLevels[level+1]
+    for _, s := range servers {
+      addrs = append(addrs, pki.Servers[s].Address)
+    }
+    return addrs    
+  } else {
+    return nil
+  }
+
+
+}
 func (pki *PKI) SkipServer(serverName string, route []string) string {
 	i := pki.Index(serverName, route)
+  if i == -1{
+    return ""
+  }
 	if i < len(route)-2 {
 		s:= route[i+2]
 		return pki.Servers[s].Address		

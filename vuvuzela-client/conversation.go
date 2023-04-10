@@ -170,7 +170,7 @@ func (c *Conversation) HandleConvoResponse(r *ConvoResponse) {
 
 	encmsg, ok := onionbox.Open(r.Onion, BackwardNonce(r.Round), pr.onionSharedKeys)
 	if !ok {
-		rlog.Error("decrypting onion failed")
+		rlog.Error("decrypting onion failed", len(pr.onionSharedKeys))
 		return
 	}
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 	"strings"
+  "math/rand"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/gorilla/websocket"
@@ -34,6 +35,8 @@ type server struct {
 
 	firstServer *vrpc.Client
 	lastServer  *vrpc.Client
+  middleServerIdx int
+  PKI         *PKI
 }
 
 type convoReq struct {
@@ -188,6 +191,26 @@ func (srv *server) convoRoundLoop() {
 		// Middle Server failure will happen here
 		srv.runConvoRound(srv.convoRound, srv.convoRequests)
 
+    route := make([]string, 3)
+    for i:=0; i<len(srv.PKI.ServerLevels); i++ {
+      servers := srv.PKI.ServerLevels[i]
+      length := len(servers)
+      if length == 0 {
+        continue
+      } else if length == 1 {
+        //rnd :=rand.Intn(10)  
+        //if rnd < 5 && i == 1 {
+        //  continue
+        //} else {
+          route = append(route, servers[0])
+        //}
+      } else {
+        selectedIdx  := rand.Intn(length)
+        route = append(route, servers[selectedIdx])
+      }
+    }
+    srv.currentRoute = route
+
 		srv.convoRound += 1
 		srv.convoRequests = make([]*convoReq, 0, len(srv.convoRequests))
 		srv.convoMu.Unlock()
@@ -241,14 +264,25 @@ func (srv *server) runConvoRound(round uint32, requests []*convoReq) {
 			" ")
 		broadcast(conns, &ConvoError{Round: round, Err: failedServerName})
 		// TODO: May need lock
-		for i, s := range srv.currentRoute {
-			if s == failedServerName {
-				// remove failedservername from currentRoute
-				srv.currentRoute = append(
-					srv.currentRoute[:i],
-					srv.currentRoute[i+1:]...)
-			}			
-		}
+		//for i, s := range srv.currentRoute {
+		//	if s == failedServerName {
+		//		// remove failedservername from currentRoute
+		//		srv.currentRoute = append(
+		//			srv.currentRoute[:i],
+		//			srv.currentRoute[i+1:]...)
+    //  }
+		//}
+    // remove failed servername from ServerLevels list
+    //srv.convoMu.Lock()
+    failedServerLevel := srv.PKI.Servers[failedServerName].Level
+    servers := srv.PKI.ServerLevels[failedServerLevel]
+    for i, s := range servers {
+      if s == failedServerName {
+         servers = append(servers[:i], servers[i+1:]...)
+      }
+    }
+    srv.PKI.ServerLevels[failedServerLevel] = servers
+    //srv.convoMu.Unlock()
 		return
 	}
 
@@ -368,6 +402,8 @@ func main() {
 		currentRoute:  pki.ServerOrder,
 		firstServer:   firstServer,
 		lastServer:    lastServer,
+    middleServerIdx: 0,
+    PKI:            pki,
 		connections:   make(map[*connection]bool),
 		convoRound:    0,
 		convoRequests: make([]*convoReq, 0, 10000),
