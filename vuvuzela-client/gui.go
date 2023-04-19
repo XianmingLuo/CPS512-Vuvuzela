@@ -195,7 +195,7 @@ func (gc *GuiClient) layout(g *gocui.Gui) error {
 	sv.Clear()
 
 	st := gc.selectedConvo.Status()
-	latency := fmt.Sprintf("%.1fs", st.Latency)
+	latency := fmt.Sprintf("%.2fs", st.Latency)
 	if st.Latency == 0.0 {
 		latency = "-"
 	}
