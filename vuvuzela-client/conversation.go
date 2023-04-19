@@ -58,6 +58,7 @@ type ConvoMessage struct {
 }
 
 type TextMessage struct {
+	Timestamp time.Time
 	Message []byte
 }
 
@@ -68,24 +69,25 @@ type TimestampMessage struct {
 func (cm *ConvoMessage) Marshal() (msg [SizeMessage]byte) {
 	switch v := cm.Body.(type) {
 	case *TimestampMessage:
+		binary.LittleEndian.PutUint64(msg[1:], uint64(v.Timestamp.UnixMicro()))
 		msg[0] = 0
-		binary.PutVarint(msg[1:], v.Timestamp.Unix())
 	case *TextMessage:
+		binary.LittleEndian.PutUint64(msg[1:], uint64(v.Timestamp.UnixMicro()))
 		msg[0] = 1
-		copy(msg[1:], v.Message)
+		copy(msg[9:], v.Message)
 	}
 	return
 }
 
 func (cm *ConvoMessage) Unmarshal(msg []byte) error {
+	ts := int64(binary.LittleEndian.Uint64(msg[1:]))
 	switch msg[0] {
 	case 0:
-		ts, _ := binary.Varint(msg[1:])
 		cm.Body = &TimestampMessage{
-			Timestamp: time.Unix(ts, 0),
+			Timestamp: time.UnixMicro(ts),
 		}
 	case 1:
-		cm.Body = &TextMessage{msg[1:]}
+		cm.Body = &TextMessage{time.UnixMicro(ts), msg[9:]}
 	default:
 		return fmt.Errorf("unexpected message type: %d", msg[0])
 	}
@@ -195,9 +197,11 @@ func (c *Conversation) HandleConvoResponse(r *ConvoResponse) {
 	switch m := msg.Body.(type) {
 	case *TextMessage:
 		s := strings.TrimRight(string(m.Message), "\x00")
+		// fmt.Println(time.Since(m.Timestamp))
+		// c.gui.Printf("%f", time.Since(m.Timestamp))
 		c.gui.Printf("<%s> %s\n", c.peerName, s)
 	case *TimestampMessage:
-		latency := time.Now().Sub(m.Timestamp)
+		latency := time.Since(m.Timestamp)
 		c.Lock()
 		c.lastLatency = latency
 		c.Unlock()
