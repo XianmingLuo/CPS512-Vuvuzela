@@ -200,6 +200,8 @@ func (c *Conversation) HandleConvoResponse(r *ConvoResponse) {
 		latency := time.Now().Sub(m.Timestamp)
 		c.Lock()
 		c.lastLatency = latency
+		c.gui.Printf("%f\n", float64(latency)/float64(1e9))
+		c.gui.logLatency(latency)
 		c.Unlock()
 	}
 }

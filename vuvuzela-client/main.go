@@ -15,6 +15,7 @@ import (
 var doInit = flag.Bool("init", false, "create default config file")
 var confPath = flag.String("conf", "../confs/client.conf", "config file")
 var pkiPath = flag.String("pki", "../confs/pki.conf", "pki file")
+var name = flag.String("name", "", "client name")
 
 type Conf struct {
 	MyName       string
@@ -22,12 +23,13 @@ type Conf struct {
 	MyPrivateKey *BoxKey
 }
 
-func WriteDefaultConf(path string) {
+func WriteDefaultConf(path string, name string) {
 	myPublicKey, myPrivateKey, err := GenerateBoxKey(rand.Reader)
 	if err != nil {
 		log.Fatalf("GenerateBoxKey: %s", err)
 	}
 	conf := &Conf{
+		MyName: name,
 		MyPublicKey:  myPublicKey,
 		MyPrivateKey: myPrivateKey,
 	}
@@ -45,7 +47,7 @@ func main() {
 	flag.Parse()
 
 	if *doInit {
-		WriteDefaultConf(*confPath)
+		WriteDefaultConf(*confPath, *name)
 		return
 	}
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"os"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/jroimartin/gocui"
@@ -28,6 +29,29 @@ type GuiClient struct {
 	selectedConvo *Conversation
 	conversations map[string]*Conversation
 	dialer        *Dialer
+	
+	
+
+	
+}
+func (gc *GuiClient) logLatency(latency time.Duration) {
+	filename := "../results/" + gc.myName + ".lat"
+	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		fmt.Println(err)		
+		return
+	}
+	to_write := fmt.Sprintf("%f\n", float64(latency)/float64(1e9))
+	//fmt.Printf("Writing %s to %s...\n", to_write, filename)
+	if _, err := f.Write([]byte(to_write)); err != nil {
+		fmt.Println(err)
+		f.Close()
+		return
+	}
+	if err := f.Close(); err != nil {
+		fmt.Println(err)
+	}
+	
 }
 
 func (gc *GuiClient) switchConversation(peer string) {
@@ -37,8 +61,13 @@ func (gc *GuiClient) switchConversation(peer string) {
 	if !ok {
 		peerPublicKey, ok := gc.pki.People[peer]
 		if !ok {
-			gc.Warnf("unknown user: %s", peer)
-			return
+			// Temporary hack
+			if peer == gc.myName {
+				peerPublicKey = gc.myPublicKey
+			} else {
+				gc.Warnf("unknown user: %s", peer)
+				return	
+			}
 		}
 		convo = &Conversation{
 			route:         gc.pki.ServerOrder,
@@ -106,13 +135,17 @@ func (gc *GuiClient) readLine(_ *gocui.Gui, v *gocui.View) error {
 }
 
 func (gc *GuiClient) redraw() {
+	
+	/*
 	gc.gui.Update(func(gui *gocui.Gui) error {
 		return nil
-	})
+	})*/
 }
 
 
 func (gc *GuiClient) Warnf(format string, v ...interface{}) {
+	fmt.Printf("-!- "+format, v...)
+	/*
 	gc.gui.Update(func(gui *gocui.Gui) error {
 		mv, err := gui.View("main")
 		if err != nil {
@@ -120,10 +153,12 @@ func (gc *GuiClient) Warnf(format string, v ...interface{}) {
 		}
 		fmt.Fprintf(mv, "-!- "+format, v...)
 		return nil
-	})
+	})*/
 }
 
 func (gc *GuiClient) Printf(format string, v ...interface{}) {
+	fmt.Printf(format, v...)
+	/*
 	gc.gui.Update(func(gui *gocui.Gui) error {
 		mv, err := gui.View("main")
 		if err != nil {
@@ -131,7 +166,7 @@ func (gc *GuiClient) Printf(format string, v ...interface{}) {
 		}
 		fmt.Fprintf(mv, format, v...)
 		return nil
-	})
+	})*/
 }
 
 func (gc *GuiClient) layout(g *gocui.Gui) error {
@@ -221,6 +256,7 @@ func (gc *GuiClient) Connect() error {
 }
 
 func (gc *GuiClient) Run() {
+	/*
 	gui, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		log.Panicln(err)
@@ -239,7 +275,8 @@ func (gc *GuiClient) Run() {
 	gui.Cursor = true
 	gui.BgColor = gocui.ColorDefault
 	gui.FgColor = gocui.ColorDefault
-
+	
+	*/
 	gc.conversations = make(map[string]*Conversation)
 	gc.switchConversation(gc.myName)
 
@@ -260,10 +297,12 @@ func (gc *GuiClient) Run() {
 		gc.Warnf("Connected: %s\n", gc.pki.EntryServer)
 	}()
 
+	for {}
+	/*
 	err = gui.MainLoop()
 	if err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
-	}
+	}*/
 }
 
 func (gc *GuiClient) Fire(entry *log.Entry) error {
