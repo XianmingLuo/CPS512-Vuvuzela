@@ -10,8 +10,12 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"net/rpc"
+	"os"
+	"os/signal"
 	"runtime"
 	"sync"
+	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -62,6 +66,26 @@ func WriteDefaultConf(path string) {
 	fmt.Printf("wrote %q\n", path)
 }
 
+func logSIGINT(serverName string) {
+	to_write := fmt.Sprintf("%d\n", time.Now().UnixMicro())
+	filename := serverName + ".int";
+	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		fmt.Println(err)		
+		return
+	}
+	//fmt.Printf("Writing %s to %s...\n", to_write, filename)
+	if _, err := f.Write([]byte(to_write)); err != nil {
+		fmt.Println(err)
+		f.Close()
+		return
+	}
+	if err := f.Close(); err != nil {
+		fmt.Println(err)
+	}
+	
+}
+
 func main() {
 	// command-line parsing
 	flag.Parse()
@@ -83,6 +107,19 @@ func main() {
 	if conf.ServerName == "" || conf.PublicKey == nil || conf.PrivateKey == nil {
 		log.Fatalf("missing required fields: %s", *confPath)
 	}
+
+	// Create a channel to receive the SIGINT signal.
+	sigint := make(chan os.Signal, 1)
+	signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
+	
+	// Start a goroutine to listen for SIGINT.
+	go func() {
+		<-sigint
+		logSIGINT(conf.ServerName)
+		fmt.Println("Received SIGINT, shutting down gracefully...")
+		// Clean up resources and shut down the server here.
+		os.Exit(0)
+	}()
 
 	if *muOverride >= 0 {
 		conf.ConvoMu = *muOverride

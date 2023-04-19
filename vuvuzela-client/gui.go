@@ -54,6 +54,25 @@ func (gc *GuiClient) logLatency(latency time.Duration) {
 	
 }
 
+func (gc *GuiClient) logRecov() {
+	to_write := fmt.Sprintf("%d\n", time.Now().UnixMicro())
+	filename := gc.myName + ".recov";
+	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		fmt.Println(err)		
+		return
+	}
+	if _, err := f.Write([]byte(to_write)); err != nil {
+		fmt.Println(err)
+		f.Close()
+		return
+	}
+	if err := f.Close(); err != nil {
+		fmt.Println(err)
+	}
+	
+}
+
 func (gc *GuiClient) switchConversation(peer string) {
 	var convo *Conversation
 

@@ -226,6 +226,7 @@ func (c *Conversation) HandleConvoError(e *ConvoError) {
 		}
 	}
 	c.gui.Printf("Updating route to %s\n", c.route)
+	c.gui.logRecov()
 	return
 }
 
