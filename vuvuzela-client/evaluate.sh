@@ -1,4 +1,4 @@
-num_clients=10
+num_clients=64
 for client in $(seq 1 $num_clients)
 do
     echo "[Removing] Client $client Result"
@@ -12,7 +12,7 @@ do
 done
 
 
-for iter in {1..50}
+for iter in {1..20}
 do
     echo "[Running] ${iter}..."
     sleep 2
