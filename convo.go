@@ -309,7 +309,6 @@ func (srv *ConvoService) Close(Round uint32, _ *struct{}) error {
 		// len(incoming) != len(outgoing)
 		// because of added cover traffic
 
-		log.Println(4)
 		replies, err := RunConvoRound(srv.Client, Round, outgoing)
 		if err != nil {
 			//log.Println("RunConvoRound: %s", err)
