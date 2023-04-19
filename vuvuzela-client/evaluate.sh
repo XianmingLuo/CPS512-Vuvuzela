@@ -1,4 +1,4 @@
-num_clients=100
+num_clients=10
 for client in $(seq 1 $num_clients)
 do
     echo "[Removing] Client $client Result"
