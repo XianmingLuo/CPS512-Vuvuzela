@@ -46,7 +46,7 @@ func (d *Dialer) NextDialRequest(round uint32, buckets uint32) *DialRequest {
 		rand.Read(ex.EncryptedIntro[:])
 	}
 
-	onion, _ := onionbox.Seal(ex.Marshal(), ForwardNonce(round), d.pki.ServerKeys().Keys())
+	onion, _ := onionbox.Seal(ex.Marshal(), ForwardNonce(round), d.pki.ServerKeys(d.pki.ServerOrder).Keys())
 
 	return &DialRequest{
 		Round: round,

@@ -92,6 +92,7 @@ func Envelop(v interface{}) (*Envelope, error) {
 }
 
 type ConvoRequest struct {
+	// TODO: Any need to include route in the ConvoRequest
 	Round uint32
 	Onion []byte
 }

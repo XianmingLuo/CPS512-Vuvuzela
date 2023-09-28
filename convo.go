@@ -26,6 +26,8 @@ type ConvoService struct {
 	ServerName string
 	PrivateKey *BoxKey
 	Client     *vrpc.Client
+  NextClients map[string]*vrpc.Client
+	SkipClient *vrpc.Client
 	LastServer bool
 
 	AccessCounts chan *AccessCount
@@ -35,6 +37,8 @@ type ConvoRound struct {
 	srv    *ConvoService
 	status convoStatus
 
+	// Include routing information in each round
+	route         []string
 	numIncoming   int
 	sharedKeys    []*[32]byte
 	incoming      [][]byte
@@ -80,14 +84,16 @@ func (srv *ConvoService) getRound(round uint32, expectedStatus convoStatus) (*Co
 	return r, nil
 }
 
-func (srv *ConvoService) NewRound(Round uint32, _ *struct{}) error {
-	log.WithFields(log.Fields{"service": "convo", "rpc": "NewRound", "round": Round}).Info()
+// NewRound RPC
+func (srv *ConvoService) NewRound(args *ConvoNewRoundArgs, _ *struct{}) error {
+	log.WithFields(log.Fields{"service": "convo", "rpc": "NewRound", "round": args.Round, "route": args.Route}).Info()
 
+	Round := args.Round
 	// wait for the service to become idle before starting a new round
 	// TODO temporary hack
 	srv.Idle.Lock()
-
 	srv.roundsMu.Lock()
+	// TODO: What is defer?
 	defer srv.roundsMu.Unlock()
 
 	_, exists := srv.rounds[Round]
@@ -97,9 +103,10 @@ func (srv *ConvoService) NewRound(Round uint32, _ *struct{}) error {
 
 	round := &ConvoRound{
 		srv: srv,
+		route: args.Route,
 	}
 	srv.rounds[Round] = round
-
+	// Add Cover Traffic
 	if !srv.LastServer {
 		round.numFakeSingles = srv.Laplace.Uint32()
 		round.numFakeDoubles = srv.Laplace.Uint32()
@@ -107,7 +114,13 @@ func (srv *ConvoService) NewRound(Round uint32, _ *struct{}) error {
 		round.noise = make([][]byte, round.numFakeSingles+round.numFakeDoubles)
 
 		nonce := ForwardNonce(Round)
-		nextKeys := srv.PKI.NextServerKeys(srv.ServerName).Keys()
+		nextKeys := srv.PKI.NextServerKeys(srv.ServerName,
+			round.route).Keys()
+		// ServerKeys may change due to middle server failure
+		// TODO: May need lock
+		// One possible race condition
+		// Round N Close RPC :middle server fails. change server order
+		// Round N+1 Newround: read server order
 		round.noiseWg.Add(1)
 		go func() {
 			FillWithFakeSingles(round.noise[:round.numFakeSingles], nonce, nextKeys)
@@ -134,7 +147,9 @@ func (srv *ConvoService) Open(args *ConvoOpenArgs, _ *struct{}) error {
 	}
 
 	round.numIncoming = args.NumIncoming
+	// shareKeys = round.numIncoming x *[32]byte
 	round.sharedKeys = make([]*[32]byte, round.numIncoming)
+	// incoming  = round.numIncoming x []byte
 	round.incoming = make([][]byte, round.numIncoming)
 	round.status = convoRoundOpen
 
@@ -147,6 +162,8 @@ type ConvoAddArgs struct {
 	Onions [][]byte
 }
 
+// What does Add actually do?
+// Peel a batch of onions
 func (srv *ConvoService) Add(args *ConvoAddArgs, _ *struct{}) error {
 	log.WithFields(log.Fields{"service": "convo", "rpc": "Add", "round": args.Round, "onions": len(args.Onions)}).Debug()
 
@@ -156,29 +173,44 @@ func (srv *ConvoService) Add(args *ConvoAddArgs, _ *struct{}) error {
 	}
 
 	nonce := ForwardNonce(args.Round)
-	expectedOnionSize := srv.PKI.IncomingOnionOverhead(srv.ServerName) + SizeConvoExchange
+	// Needs a correct view of server order
+	// How does the update propagate to the tail of the server chain?
+	// Head of the server chain may know the update of the server chain because of error propagation
+	// Tail of the server chain may only know the update when some server explicitly tell them
+	// Solution 1: Query entry server actively every round
+	// Solution 2: Passively informed by the previous server
+	// Solution 3: Include the path in the round information (May also apply to dynamic routing)
+	// TODO: Any security implication?
+	// Solution 4: Dynamic Membership from Raft?
+	expectedOnionSize := srv.PKI.IncomingOnionOverhead(
+		srv.ServerName,
+		round.route) + SizeConvoExchange
 
 	if args.Offset+len(args.Onions) > round.numIncoming {
 		return fmt.Errorf("overflowing onions (offset=%d, onions=%d, incoming=%d)", args.Offset, len(args.Onions), round.numIncoming)
 	}
 
+	// Deal with onions
 	for k, onion := range args.Onions {
 		i := args.Offset + k
 		round.sharedKeys[i] = new([32]byte)
 
 		if len(onion) == expectedOnionSize {
 			var theirPublic [32]byte
+			// TODO: Does onion has their public key
+			// What does their mean?
 			copy(theirPublic[:], onion[0:32])
 
 			box.Precompute(round.sharedKeys[i], &theirPublic, srv.PrivateKey.Key())
 
+			// Open one layer of onion?
 			message, ok := box.OpenAfterPrecomputation(nil, onion[32:], nonce, round.sharedKeys[i])
 			if ok {
 				round.incoming[i] = message
 			}
 		} else {
 			// for debugging
-			log.WithFields(log.Fields{"round": args.Round, "offset": args.Offset, "onions": len(args.Onions), "onion": k, "onionLen": len(onion)}).Error("bad onion size")
+      log.WithFields(log.Fields{"round": args.Round, "offset": args.Offset,"expected size": expectedOnionSize,  "onions": len(args.Onions), "onion": k, "onionLen": len(onion)}).Error("bad onion size")
 		}
 	}
 
@@ -220,29 +252,87 @@ func (srv *ConvoService) Close(Round uint32, _ *struct{}) error {
 	}
 
 	srv.filterIncoming(round)
-
 	if !srv.LastServer {
 		round.noiseWg.Wait()
 
-		outgoing := append(round.incoming, round.noise...)
+		// Generate noise
+		// TODO: Is noise the so-called cover traffic?
+		outgoing := append(round.incoming, round.noise...)		
 		round.noise = nil
 
 		shuffler := shuffle.New(rand.Reader, len(outgoing))
 		shuffler.Shuffle(outgoing)
 
-		if err := NewConvoRound(srv.Client, Round); err != nil {
-			return fmt.Errorf("NewConvoRound: %s", err)
+		// Critical Part for Fault Tolerance
+		// if next server is dead
+		// err will be returned
+    nextServer := srv.PKI.NextServer(srv.ServerName, srv.rounds[Round].route)
+    client :=  srv.NextClients[nextServer] 
+    if client != nil {
+      srv.Client = client
+    } else {
+      srv.Client = srv.SkipClient
+    }
+		if err := NewConvoRound(srv.Client, Round, srv.rounds[Round].route); err != nil {
+			// TODO: Catch specific type of error
+			nextServerName := 
+				srv.PKI.NextServerName(
+				srv.ServerName,
+				round.route)
+			log.Println("NewConvoRound: ", err)
+			// TODO: Only substitute next client before new round start
+			if srv.SkipClient != nil {
+				// Update server order
+				// TODO: Potential Race Condition
+				log.Println("Remove  ", nextServerName)
+				// SkipClient becomes new client
+				srv.Client = srv.SkipClient
+				//srv.SkipClient = nil				
+				// return connection error
+				srv.Idle.Unlock()
+				log.Println("unlock ", nextServerName)
+				// TODO: Better to Customize error type
+				return fmt.Errorf("NewConvoRound: %s", nextServerName)
+			} else {
+				// The entire system is down
+				// Differentiate from error with backup
+				srv.Idle.Unlock()
+				return fmt.Errorf("NewConvoRound: %s", err)	
+			}
+			
 		}
 		srv.Idle.Unlock()
 
+		// TODO: What is replies?
+		// Ask the next server in the chain to run convo round
+		// Previous Server --incoming--> this server --> outgoing --> Next Server
+		// len(incoming) != len(outgoing)
+		// because of added cover traffic
+
 		replies, err := RunConvoRound(srv.Client, Round, outgoing)
 		if err != nil {
-			return fmt.Errorf("RunConvoRound: %s", err)
+			//log.Println("RunConvoRound: %s", err)
+			// TODO: Abstract out to avoid duplicate		
+			if srv.SkipClient != nil {
+				// SkipClient becomes new client
+				srv.Client = srv.SkipClient
+				//srv.SkipClient = nil
+				return fmt.Errorf("RunConvoRound: %s", err)
+			} else {
+				// The entire system is down
+				// Defferentiate from error with backup
+				fmt.Errorf("RunConvoround: %s", err)			
+			}
+
 		}
 
+		// Reverse operation
+		// Why reverse operation is needed?
+		// message needs to be returned to the correct sender
+		// Cover traffic needs to be removed
 		shuffler.Unshuffle(replies)
 		round.replies = replies[:round.numIncoming]
-	} else {
+	} else { // Dead Drop Server
 		exchanges := make([]*ConvoExchange, len(round.incoming))
 		concurrency.ParallelFor(len(round.incoming), func(p *concurrency.P) {
 			for i, ok := p.Next(); ok; i, ok = p.Next() {
@@ -312,6 +402,7 @@ type ConvoGetResult struct {
 	Onions [][]byte
 }
 
+// RPC: Get
 func (srv *ConvoService) Get(args *ConvoGetArgs, result *ConvoGetResult) error {
 	log.WithFields(log.Fields{"service": "convo", "rpc": "Get", "round": args.Round, "count": args.Count}).Debug()
 
@@ -321,7 +412,9 @@ func (srv *ConvoService) Get(args *ConvoGetArgs, result *ConvoGetResult) error {
 	}
 
 	nonce := BackwardNonce(args.Round)
-	outgoingOnionSize := srv.PKI.OutgoingOnionOverhead(srv.ServerName) + SizeEncryptedMessage
+	outgoingOnionSize := srv.PKI.OutgoingOnionOverhead(
+		srv.ServerName,
+		round.route) + SizeEncryptedMessage
 
 	result.Onions = make([][]byte, args.Count)
 	for k := range result.Onions {
@@ -351,22 +444,35 @@ func (srv *ConvoService) Delete(Round uint32, _ *struct{}) error {
 	return nil
 }
 
-func NewConvoRound(client *vrpc.Client, round uint32) error {
-	return client.Call("ConvoService.NewRound", round, nil)
+type ConvoNewRoundArgs struct {
+	Round       uint32
+	// TODO: Can be optimized by using server id
+	Route       []string
 }
-
+// RPC: ConvoService.NewRound
+func NewConvoRound(client *vrpc.Client, round uint32, route []string) error {
+	newRoundArgs := &ConvoNewRoundArgs{
+		Round: round,
+		Route: route,
+	}
+	return client.Call("ConvoService.NewRound", newRoundArgs, nil)
+}
+// Ask the next server to run convo round
 func RunConvoRound(client *vrpc.Client, round uint32, onions [][]byte) ([][]byte, error) {
 	openArgs := &ConvoOpenArgs{
 		Round:       round,
 		NumIncoming: len(onions),
 	}
+	// First Call RPC Open
 	if err := client.Call("ConvoService.Open", openArgs, nil); err != nil {
 		return nil, fmt.Errorf("Open: %s", err)
 	}
 
+	// Handle onions concurrently
 	spans := concurrency.Spans(len(onions), 4000)
 	calls := make([]*vrpc.Call, len(spans))
 
+	// Then Call RPC Add
 	concurrency.ParallelFor(len(calls), func(p *concurrency.P) {
 		for i, ok := p.Next(); ok; i, ok = p.Next() {
 			span := spans[i]
@@ -382,14 +488,18 @@ func RunConvoRound(client *vrpc.Client, round uint32, onions [][]byte) ([][]byte
 		}
 	})
 
+	// TODO: What is calls?
 	if err := client.CallMany(calls); err != nil {
 		return nil, fmt.Errorf("Add: %s", err)
 	}
 
+	// Call RPC Close
 	if err := client.Call("ConvoService.Close", round, nil); err != nil {
 		return nil, fmt.Errorf("Close: %s", err)
 	}
+	
 
+	// Call RPC Get
 	concurrency.ParallelFor(len(calls), func(p *concurrency.P) {
 		for i, ok := p.Next(); ok; i, ok = p.Next() {
 			span := spans[i]

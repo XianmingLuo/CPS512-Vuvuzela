@@ -14,6 +14,8 @@ import (
 type Client struct {
 	sync.Mutex
 
+	//currentRoute []string
+
 	EntryServer string
 	MyPublicKey *BoxKey
 
@@ -27,6 +29,7 @@ type Client struct {
 type ConvoHandler interface {
 	NextConvoRequest(round uint32) *ConvoRequest
 	HandleConvoResponse(response *ConvoResponse)
+	HandleConvoError(error *ConvoError)
 }
 
 type DialHandler interface {
@@ -81,7 +84,7 @@ func (c *Client) Connect() error {
 func (c *Client) Close() {
 	c.ws.Close()
 }
-
+// Send using JSON
 func (c *Client) Send(v interface{}) {
 	const writeWait = 10 * time.Second
 
@@ -122,9 +125,12 @@ func (c *Client) readLoop() {
 
 func (c *Client) handleResponse(v interface{}) {
 	switch v := v.(type) {
+	// TODO: Use existing error or new error to indicate need of resending
 	case *BadRequestError:
 		log.Printf("bad request error: %s", v.Error())
 	case *AnnounceConvoRound:
+		// As long as the client is connected to the entry server
+		// It will send ConvoRequest, no matter fake or authentic
 		c.Send(c.nextConvoRequest(v.Round))
 	case *AnnounceDialRound:
 		c.Send(c.dialHandler.NextDialRequest(v.Round, v.Buckets))
@@ -132,10 +138,15 @@ func (c *Client) handleResponse(v interface{}) {
 		c.deliverConvoResponse(v)
 	case *DialBucket:
 		c.dialHandler.HandleDialBucket(v)
+	// TODO: Error Message can be more detailed
+	case *ConvoError:
+		c.handleConvoError(v)
+		
 	}
 }
 
 func (c *Client) nextConvoRequest(round uint32) *ConvoRequest {
+	// TODO: Why lock is needed here?
 	c.Lock()
 	c.roundHandlers[round] = c.convoHandler
 	c.Unlock()
@@ -153,4 +164,15 @@ func (c *Client) deliverConvoResponse(r *ConvoResponse) {
 	}
 
 	convo.HandleConvoResponse(r)
+}
+func (c *Client) handleConvoError(e *ConvoError) {
+	c.Lock()
+	convo, ok := c.roundHandlers[e.Round]
+	delete(c.roundHandlers, e.Round)
+	c.Unlock()
+	if !ok {
+		log.WithFields(log.Fields{"round": e.Round}).Error("round not found")
+		return
+	}
+	convo.HandleConvoError(e)
 }

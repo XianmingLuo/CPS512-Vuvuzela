@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"strings"
+  "math/rand"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/gorilla/websocket"
@@ -18,6 +20,8 @@ import (
 )
 
 type server struct {
+	currentRoute []string
+	
 	connectionsMu sync.Mutex
 	connections   map[*connection]bool
 
@@ -31,6 +35,8 @@ type server struct {
 
 	firstServer *vrpc.Client
 	lastServer  *vrpc.Client
+  middleServerIdx int
+  PKI         *PKI
 }
 
 type convoReq struct {
@@ -167,21 +173,43 @@ func (c *connection) handleDialRequest(r *DialRequest) {
 	srv.dialRequests = append(srv.dialRequests, rr)
 	srv.dialMu.Unlock()
 }
-
+// Only Middle Server will add Cover Traffic
+// Entry server won't
 func (srv *server) convoRoundLoop() {
 	for {
-		if err := NewConvoRound(srv.firstServer, srv.convoRound); err != nil {
-			log.WithFields(log.Fields{"service": "convo", "round": srv.convoRound, "call": "NewConvoRound"}).Error(err)
+		if err := NewConvoRound(srv.firstServer, srv.convoRound, srv.currentRoute); err != nil {
+			log.WithFields(log.Fields{"service": "convo", "round": srv.convoRound, "call": "NewConvoRound", "currentRoute": srv.currentRoute}).Error(err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
 		log.WithFields(log.Fields{"service": "convo", "round": srv.convoRound}).Info("Broadcast")
-
 		broadcast(srv.allConnections(), &AnnounceConvoRound{srv.convoRound})
 		time.Sleep(*receiveWait)
 
 		srv.convoMu.Lock()
-		go srv.runConvoRound(srv.convoRound, srv.convoRequests)
+		//go srv.runConvoRound(srv.convoRound, srv.convoRequests)
+		// Middle Server failure will happen here
+		srv.runConvoRound(srv.convoRound, srv.convoRequests)
+
+    route := make([]string, 3)
+    for i:=0; i<len(srv.PKI.ServerLevels); i++ {
+      servers := srv.PKI.ServerLevels[i]
+      length := len(servers)
+      if length == 0 {
+        continue
+      } else if length == 1 {
+        //rnd :=rand.Intn(10)  
+        //if rnd < 5 && i == 1 {
+        //  continue
+        //} else {
+          route = append(route, servers[0])
+        //}
+      } else {
+        selectedIdx  := rand.Intn(length)
+        route = append(route, servers[selectedIdx])
+      }
+    }
+    srv.currentRoute = route
 
 		srv.convoRound += 1
 		srv.convoRequests = make([]*convoReq, 0, len(srv.convoRequests))
@@ -223,14 +251,44 @@ func (srv *server) runConvoRound(round uint32, requests []*convoReq) {
 	rlog.WithFields(log.Fields{"call": "RunConvoRound", "onions": len(onions)}).Info()
 
 	replies, err := RunConvoRound(srv.firstServer, round, onions)
+	// If here fails, currentRoute needs to be updated
 	if err != nil {
+		// TODO: Deal with possible middle server failure here
+		// inform client of the server chain update
 		rlog.WithFields(log.Fields{"call": "RunConvoRound"}).Error(err)
-		broadcast(conns, &ConvoError{Round: round, Err: "server error"})
+		// Update current Route
+		// E.g. "Close: NewConvoround: local-middle0" --> "local-middle0"
+		errorStrings := strings.Split(err.Error(), ":")
+		failedServerName := strings.Trim(
+			errorStrings[len(errorStrings)-1],
+			" ")
+		broadcast(conns, &ConvoError{Round: round, Err: failedServerName})
+		// TODO: May need lock
+		//for i, s := range srv.currentRoute {
+		//	if s == failedServerName {
+		//		// remove failedservername from currentRoute
+		//		srv.currentRoute = append(
+		//			srv.currentRoute[:i],
+		//			srv.currentRoute[i+1:]...)
+    //  }
+		//}
+    // remove failed servername from ServerLevels list
+    //srv.convoMu.Lock()
+    failedServerLevel := srv.PKI.Servers[failedServerName].Level
+    servers := srv.PKI.ServerLevels[failedServerLevel]
+    for i, s := range servers {
+      if s == failedServerName {
+         servers = append(servers[:i], servers[i+1:]...)
+      }
+    }
+    srv.PKI.ServerLevels[failedServerLevel] = servers
+    //srv.convoMu.Unlock()
 		return
 	}
 
 	rlog.WithFields(log.Fields{"replies": len(replies)}).Info("Success")
 
+	// Send back reply when a round runs successfully
 	concurrency.ParallelFor(len(replies), func(p *concurrency.P) {
 		for i, ok := p.Next(); ok; i, ok = p.Next() {
 			reply := &ConvoResponse{
@@ -320,7 +378,8 @@ func (srv *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 var addr = flag.String("addr", ":8080", "http service address")
-var pkiPath = flag.String("pki", "confs/pki.conf", "pki file")
+// TODO: Why ../ is not needed?
+var pkiPath = flag.String("pki", "../confs/pki.conf", "pki file")
 var receiveWait = flag.Duration("wait", DefaultReceiveWait, "")
 
 func main() {
@@ -329,19 +388,22 @@ func main() {
 
 	pki := ReadPKI(*pkiPath)
 
-	firstServer, err := vrpc.Dial("tcp", pki.FirstServer(), runtime.NumCPU())
+	firstServer, err := vrpc.Dial("tcp", pki.FirstServer(pki.ServerOrder), runtime.NumCPU())
 	if err != nil {
 		log.Fatalf("vrpc.Dial: %s", err)
 	}
 
-	lastServer, err := vrpc.Dial("tcp", pki.LastServer(), 1)
+	lastServer, err := vrpc.Dial("tcp", pki.LastServer(pki.ServerOrder), 1)
 	if err != nil {
 		log.Fatalf("vrpc.Dial: %s", err)
 	}
 
 	srv := &server{
+		currentRoute:  pki.ServerOrder,
 		firstServer:   firstServer,
 		lastServer:    lastServer,
+    middleServerIdx: 0,
+    PKI:            pki,
 		connections:   make(map[*connection]bool),
 		convoRound:    0,
 		convoRequests: make([]*convoReq, 0, 10000),
@@ -350,7 +412,7 @@ func main() {
 	}
 
 	go srv.convoRoundLoop()
-	go srv.dialRoundLoop()
+	//go srv.dialRoundLoop()
 
 	http.HandleFunc("/ws", srv.wsHandler)
 

@@ -71,17 +71,17 @@ sample configs.
 2. Start the last Vuvuzela server:
 
         $ cd vuvuzela-server
-        $ go run . -conf confs/local-last.conf
+        $ go run . -conf ../confs/local-last.conf
 
 3. Start the middle server (in a new shell):
 
         $ cd vuvuzela-server
-        $ go run . -conf confs/local-middle.conf
+        $ go run . -conf ../confs/local-middle.conf
 
 4. Start the first server (in a new shell):
 
         $ cd vuvuzela-server
-        $ go run . -conf confs/local-first.conf
+        $ go run . -conf ../confs/local-first.conf
 
 5. Start the entry server (in a new shell):
 
@@ -91,12 +91,12 @@ sample configs.
 6. Run the Vuvuzela client:
 
         $ cd vuvuzela-client
-        $ go run . -conf confs/alice.conf
+        $ go run . -conf ../confs/alice.conf
 
 7. Run another Vuvuzela client:
     
         $ cd vuvuzela-client
-        $ go run . -conf confs/bob.conf
+        $ go run . -conf ../confs/bob.conf
 The client supports these commands:
 
 * `/dial <user>` to dial another user
